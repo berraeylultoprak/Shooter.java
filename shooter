@@ -1,0 +1,162 @@
+package frc.java.subsystems;
+
+import frc.robot.Constants;
+
+import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
+
+import edu.wpi.first.math.controller.PIDController;
+import edu.wpi.first.math.controller.SimpleMotorFeedforward;
+import edu.wpi.first.wpilibj.Encoder;
+import edu.wpi.first.wpilibj.Joystick;
+import edu.wpi.first.wpilibj.CounterBase.EncodingType;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import edu.wpi.first.wpilibj2.command.SubsystemBase;
+
+// be sure you have enough motors that the shooter can get from stopped to your shoot rpm in about 1 second
+
+public class Shooter extends SubsystemBase 
+{
+// static keyword makes your program memory efficient 
+    public static WPI_TalonSRX masterMotor;
+    public static WPI_TalonSRX slaveMotor;
+    public Encoder shooterEncoder;
+    // useful for getting precise movement  from a mechanism by providing feedback to a PID loop
+
+    final double kP = 0.5; // proportional constant
+    final double kI = 0.5; // integral constant
+    final double kD = 0.1; // derivative constant
+    final double iLimit = 1; // errorSum accumulation zone
+    // Create a new SimpleMotorFeedforward with gains kS, kV, and kA
+    SimpleMotorFeedforward feedforward = new SimpleMotorFeedforward(kS, kV, kA); // use a feed-forward with some P gain, rather 
+    // than relying only on PID feedback
+
+    private PIDController pid = new PIDController(kP,kI,kD);
+
+    // (not exactly sure what they mean)
+    private double ENCODER_EDGES_PER_REV = 4096 / 4.;
+    private double encoderConstant = (1 / ENCODER_EDGES_PER_REV);
+
+    private final double kDriveTick2Feet = 1.0 / 128 * 6 * Math.PI / 12;
+    // at a high level, to calculate the number of feet between encoder ticks, you would divide the wheel circumference 
+    // by the number of encoder ticks per revolution
+
+    // bunlar ne
+    double yaw;
+    double pitch;
+    double skew;
+    Transform2d pose;
+    Translation2d  translation;
+    
+    double range;
+
+    double targetAngle;
+    //
+
+
+    public Shooter() 
+    {
+        // for a shooter, the most common unit of distance is probably revolution of the output wheel
+        private Encoder shooterEncoder = new Encoder(0, 1, false, EncodingType.k4X); // 4X Decoding: increments the distance for every edge of the encoder signal (four times per period)
+        shooterEncoder.setDistancePerPulse(encoderConstant);
+
+        // the right side of the drivetrain is no longer inverted by default
+        masterMotor.setInverted(false);
+        slaveMotor.setInverted(false);
+
+        // (?)
+        pid.setTolerance(100);
+    }
+
+    public void tankDriveWithFeedforward(double leftVelocity, double rightVelocity) 
+    {
+        leftMotor.setVoltage(feedforward.calculate(leftVelocity));
+        rightMotor.setVoltage(feedForward.calculate(rightVelocity));
+    }
+
+    
+
+    // Gets the current rate of the encoder
+    // when the command is "get", ouble is used instead of void or another
+    public double getRPM()
+    {
+        return shooterEncoder.getRate() * 60.; // be sure the “shoot” RPM is at about 50% - 75% of the maximum possible speed 
+        // of the shooter wheel
+    }
+
+    public void stop(){
+        setShooter(0);
+    }
+
+    // what is "isAtRPM"? what do we extract from the revolutions per minute we get from the "getRPM" command? 
+    public boolean isAtRPM(int RPM){
+        if(Math.abs(getRPM() - RPM) <= 100){
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public void autonomousPeriodic() 
+    {
+        // get joystick command
+        if (joy1.getRawButton(1)) 
+        {
+            setpoint = 10;
+        } 
+        else if (joy1.getRawButton(2)) 
+        {
+            setpoint = 0;
+        }   
+
+    // get sensor position
+    double sensorPosition = encoder.get() * kDriveTick2Feet;
+
+    // calculations
+    double error = setpoint - sensorPosition;
+    double dt = Timer.getFPGATimestamp() - lastTimestamp;
+
+    if (Math.abs(error) < iLimit)
+    {
+      errorSum += error * dt;
+    }
+    
+    double errorRate = (error  - lastError) / dt;
+
+    double outputSpeed = kP * error + kI * errorSum + kD * errorRate;
+
+    // output to motors
+    leftMotor1.set(outputSpeed);
+    leftMotor2.set(outputSpeed);
+    rightMotor1.set(-outputSpeed);
+    rightMotor2.set(-outputSpeed);
+
+    // update last- variables
+    lastTimestamp = Timer.getFPGATimestamp();
+    lastError = error;
+    }
+
+    @Override
+    public void periodic() 
+    {
+        SmartDashboard.putNumber("encoder value", encoder.get() * kDriveTick2Feet);
+    }   
+
+    @Override
+    public void simulationPeriodic() {}
+
+    // ? Feedforward - burayı da anlamadım
+    public void setRPM(int rpm){
+        double ffOutput = feedforward.calculate(rpm);
+        double pidOutput = pid.calculate(getRPM(), rpm);
+        SmartDashboard.putNumber("Shooter FF  Output", ffOutput);
+        SmartDashboard.putNumber("Shooter PID Output", pidOutput);
+        setShooter(MathUtil.clamp(pidOutput, -1, 1));
+    }
+
+    // ?
+    public void runBackwards() 
+    {
+        setShooter(-0.2);
+    }
+    
+}
